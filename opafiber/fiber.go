@@ -1,12 +1,15 @@
 package opafiber
 
 import (
+	"bytes"
 	"context"
 	"fmt"
+	"io"
+
 	"github.com/gofiber/fiber/v2"
 	"github.com/gofiber/fiber/v2/utils"
 	"github.com/open-policy-agent/opa/rego"
-	"io"
+	"github.com/open-policy-agent/opa/topdown"
 )
 
 type InputCreationFunc func(c *fiber.Ctx) (map[string]interface{}, error)
@@ -21,6 +24,8 @@ type Config struct {
 	InputCreationMethod   InputCreationFunc
 }
 
+var buf bytes.Buffer
+
 func New(cfg Config) fiber.Handler {
 	err := cfg.fillAndValidate()
 	if err != nil {
@@ -33,6 +38,8 @@ func New(cfg Config) fiber.Handler {
 	query, err := rego.New(
 		rego.Query(cfg.RegoQuery),
 		rego.Module("policy.rego", utils.UnsafeString(readedBytes)),
+		rego.EnablePrintStatements(true),
+		rego.PrintHook(topdown.NewPrintHook(&buf)),
 	).PrepareForEval(context.Background())
 	if err != nil {
 		panic(fmt.Sprint("rego policy error: %w", err))
@@ -59,6 +66,7 @@ func New(cfg Config) fiber.Handler {
 			input["headers"] = headers
 		}
 		res, err := query.Eval(context.Background(), rego.EvalInput(input))
+		fmt.Println("buf:", buf.String())
 		if err != nil {
 			c.Response().SetStatusCode(fiber.StatusInternalServerError)
 			c.Response().SetBodyString(fmt.Sprintf("Error evaluating rego policy: %s", err))
